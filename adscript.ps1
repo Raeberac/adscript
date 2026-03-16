@@ -1,27 +1,32 @@
 Import-Module ActiveDirectory
 
-$LogFile = "C:\ADScriptLog.txt"
-$DomainName = (Get-ADDomain).DNSRoot
+# Log file location
+$LogFile = "$env:TEMP\ADScriptLog.txt"
+
+# Set Console Colors for that "Terminal" look
+function Set-ConsoleColors {
+    $Host.UI.RawUI.BackgroundColor = "Black"
+    $Host.UI.RawUI.ForegroundColor = "Gray"
+    Clear-Host 
+}
+
+# Dynamic Domain Info
+$ADDomain = Get-ADDomain
+$DomainName = $ADDomain.DNSRoot
+$NetBIOSName = $ADDomain.NetBIOSName
 
 function Write-Log {
     param($Message)
     try {
         $Time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        # Security: Passwords are never passed to this function.
         "$Time - $Message" | Out-File -FilePath $LogFile -Append -ErrorAction SilentlyContinue
     } catch {}
 }
 
 function Get-RandomPassword {
-    $uppers = "ABCDEFGHJKLMNPQRSTUVWXYZ"
-    $lowers = "abcdefghijkmnopqrstuvwxyz"
-    $nums   = "23456789"
-    $specs  = "!@#$%"
-    $password = ""
-    $password += $uppers[(Get-Random -Maximum $uppers.Length)]
-    $password += $lowers[(Get-Random -Maximum $lowers.Length)]
-    $password += $nums[(Get-Random -Maximum $nums.Length)]
-    $password += $specs[(Get-Random -Maximum $specs.Length)]
+    $uppers = "ABCDEFGHJKLMNPQRSTUVWXYZ"; $lowers = "abcdefghijkmnopqrstuvwxyz"
+    $nums = "23456789"; $specs = "!@#$%"
+    $password = $uppers[(Get-Random -Maximum 24)] + $lowers[(Get-Random -Maximum 25)] + $nums[(Get-Random -Maximum 8)] + $specs[(Get-Random -Maximum 5)]
     $all = $uppers + $lowers + $nums + $specs
     for ($i = 1; $i -le 6; $i++) { $password += $all[(Get-Random -Maximum $all.Length)] }
     return (-join ($password.ToCharArray() | Get-Random -Count $password.Length))
@@ -29,86 +34,80 @@ function Get-RandomPassword {
 
 function Select-OU {
     $ous = Get-ADOrganizationalUnit -Filter * | Select-Object Name, DistinguishedName | Sort-Object Name
-    Write-Host "`n--- Available Organizational Units ---" -ForegroundColor Cyan
+    Write-Host "`n[ AD STRUCTURE ]" -ForegroundColor Green
     for ($i = 0; $i -lt $ous.Count; $i++) {
-        Write-Host "[$($i+1)] " -NoNewline -ForegroundColor Gray
-        Write-Host "$($ous[$i].Name)"
+        Write-Host " ($($i+1)) " -NoNewline -ForegroundColor Green
+        Write-Host "$($ous[$i].Name)" -ForegroundColor White
     }
-    $selection = Read-Host "`nSelect OU number"
+    $selection = Read-Host "`nSelect OU Number"
     if ($selection -match '^\d+$' -and $selection -gt 0 -and $selection -le $ous.Count) {
         return $ous[$selection-1].DistinguishedName
     }
-    Write-Host "!! Invalid Selection !!" -ForegroundColor Red
+    Write-Host "!! INVALID SELECTION !!" -ForegroundColor Red
     return $null
 }
 
+# Initialize UI
+Set-ConsoleColors
+
 while ($true) {
     Clear-Host
-    Write-Host "=====================================================" -ForegroundColor Cyan
-    Write-Host "         ACTIVE DIRECTORY MANAGEMENT CONSOLE         " -ForegroundColor White -BackgroundColor Blue
-    Write-Host "=====================================================" -ForegroundColor Cyan
-    Write-Host " [USER]           [OU]             [SYSTEM]          " -ForegroundColor Gray
-    Write-Host " reset            createou         listuser          " -ForegroundColor White
-    Write-Host " enable           listou           bulkimport        " -ForegroundColor White
-    Write-Host " disable                           userinfo          " -ForegroundColor White
-    Write-Host " setou                             exit              " -ForegroundColor White
-    Write-Host " createuser                                          " -ForegroundColor White
-    Write-Host " deleteuser                                          " -ForegroundColor White
-    Write-Host "-----------------------------------------------------" -ForegroundColor Cyan
+    Write-Host " _____________________________________________________ " -ForegroundColor Green
+    Write-Host "|                                                     |" -ForegroundColor Green
+    Write-Host "|         ACTIVE DIRECTORY MANAGEMENT CONSOLE         |" -ForegroundColor White
+    Write-Host "|_____________________________________________________|" -ForegroundColor Green
+    Write-Host "  [USER OPS]        [OU OPS]         [SYSTEM OPS]      " -ForegroundColor Green
+    Write-Host "  reset             createou         listuser          " -ForegroundColor White
+    Write-Host "  enable            listou           bulkimport        " -ForegroundColor White
+    Write-Host "  disable                            userinfo          " -ForegroundColor White
+    Write-Host "  setou                              viewlog           " -ForegroundColor White
+    Write-Host "  createuser                         exit              " -ForegroundColor White
+    Write-Host "  deleteuser                                           " -ForegroundColor White
+    Write-Host " ----------------------------------------------------- " -ForegroundColor Green
 
-    $action = Read-Host "Enter command"
+    $action = Read-Host "Command"
     if ($action -eq "exit") { break }
 
     switch ($action) {
         "reset" {
-            $name = Read-Host "Enter username"
+            $name = Read-Host "Target Username"
             try {
                 $tempPass = Get-RandomPassword
                 $securePass = ConvertTo-SecureString $tempPass -AsPlainText -Force
                 Set-ADAccountPassword -Identity $name -Reset -NewPassword $securePass
                 Set-ADUser -Identity $name -ChangePasswordAtLogon $true
-                Write-Host "SUCCESS: Password reset." -ForegroundColor Green
-                Write-Host "TEMP PASSWORD: $tempPass" -ForegroundColor Yellow
-                Write-Log "SUCCESS: Password reset for $name."
+                Write-Host "`n[ SUCCESS ]" -ForegroundColor Green
+                Write-Host "TEMP PASSWORD: $tempPass" -ForegroundColor Green -BackgroundColor DarkGreen
+                Write-Log "SUCCESS: Reset $name"
             } catch {
-                Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
-                Write-Log "ERROR: Password reset failed for $name."
+                Write-Host "`n[ ERROR ] $($_.Exception.Message)" -ForegroundColor Red
             }
         }
 
         "createuser" {
-            $name = Read-Host "Enter SamAccountName"
-            $first = Read-Host "First Name"
-            $last = Read-Host "Last Name"
+            $name = Read-Host "SamAccountName"; $first = Read-Host "First Name"; $last = Read-Host "Last Name"
             if ([string]::IsNullOrWhiteSpace($name) -or [string]::IsNullOrWhiteSpace($first)) {
-                Write-Host "ERROR: Username and First Name are required!" -ForegroundColor Red
-                break
+                Write-Host "!! REQUIRED FIELDS MISSING !!" -ForegroundColor Red; break
             }
+            
+            Write-Host "Default UPN Suffix: @$DomainName" -ForegroundColor Gray
+            $suffixInput = Read-Host "Press Enter for default, or type new suffix"
+            $upnSuffix = if ([string]::IsNullOrWhiteSpace($suffixInput)) { $DomainName } else { $suffixInput.Replace("@","") }
+
             $ou = Select-OU
             if ($ou) {
                 try {
                     $tempPass = Get-RandomPassword
                     $securePass = ConvertTo-SecureString $tempPass -AsPlainText -Force
-                    New-ADUser -SamAccountName $name -UserPrincipalName "$name@$DomainName" `
-                               -Name "$first $last" -GivenName $first -Surname $last `
-                               -Enabled $true -AccountPassword $securePass -ChangePasswordAtLogon $true -Path $ou
-                    Write-Host "User Created Successfully." -ForegroundColor Green
-                    Write-Host "TEMP PASSWORD: $tempPass" -ForegroundColor Yellow
-                    Write-Log "SUCCESS: Created user $name in $ou."
-                } catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red }
-            }
-        }
-
-        "deleteuser" {
-            $name = Read-Host "Username to PERMANENTLY DELETE"
-            Write-Host "WARNING: This cannot be undone!" -ForegroundColor Red
-            $confirm = Read-Host "Confirm deletion? (y/n)"
-            if ($confirm -eq 'y') {
-                try {
-                    Remove-ADUser -Identity $name -Confirm:$false
-                    Write-Host "User $name purged." -ForegroundColor Green
-                    Write-Log "SUCCESS: Deleted user $name."
-                } catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red }
+                    New-ADUser -SamAccountName $name -UserPrincipalName "$name@$upnSuffix" -Name "$first $last" `
+                               -GivenName $first -Surname $last -Enabled $true -AccountPassword $securePass -ChangePasswordAtLogon $true -Path $ou
+                    
+                    Write-Host "`n[ USER CREATED ]" -ForegroundColor Green
+                    Write-Host "Legacy Logon:  $NetBIOSName\$name" -ForegroundColor White
+                    Write-Host "UPN/Email:     $name@$upnSuffix" -ForegroundColor White
+                    Write-Host "TEMP PASSWORD: $tempPass" -ForegroundColor Green -BackgroundColor DarkGreen
+                    Write-Log "SUCCESS: Created $name ($name@$upnSuffix)"
+                } catch { Write-Host "!! ERROR: $($_.Exception.Message)" -ForegroundColor Red }
             }
         }
 
@@ -118,17 +117,16 @@ while ($true) {
             if ($targetOU) {
                 try {
                     Move-ADObject -Identity (Get-ADUser $name).DistinguishedName -TargetPath $targetOU
-                    Write-Host "Move Successful." -ForegroundColor Green
+                    Write-Host "[ MOVED ] $name successfully." -ForegroundColor Green
                     Write-Log "SUCCESS: Moved $name to $targetOU"
-                } catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red }
+                } catch { Write-Host "!! ERROR: $($_.Exception.Message)" -ForegroundColor Red }
             }
         }
 
         "bulkimport" {
-            $path = Read-Host "Enter CSV path (Headers: SamAccountName,FirstName,LastName)"
+            $path = Read-Host "CSV Path"
             if (Test-Path $path) {
-                $users = Import-Csv $path
-                $ou = Select-OU
+                $users = Import-Csv $path; $ou = Select-OU
                 if ($ou) {
                     foreach ($u in $users) {
                         try {
@@ -137,45 +135,16 @@ while ($true) {
                             New-ADUser -SamAccountName $u.SamAccountName -UserPrincipalName "$($u.SamAccountName)@$DomainName" `
                                        -Name "$($u.FirstName) $($u.LastName)" -GivenName $u.FirstName -Surname $u.LastName `
                                        -Enabled $true -AccountPassword $securePass -ChangePasswordAtLogon $true -Path $ou
-                            Write-Host "Created $($u.SamAccountName) - Temp Pass: $tempPass" -ForegroundColor Green
-                            Write-Log "BULK: Created $($u.SamAccountName)"
-                        } catch { Write-Host "Failed $($u.SamAccountName): $($_.Exception.Message)" -ForegroundColor Red }
+                            Write-Host "PROCESSED: $($u.SamAccountName) | Pass: $tempPass" -ForegroundColor Green
+                        } catch { Write-Host "FAILED: $($u.SamAccountName)" -ForegroundColor Red }
                     }
                 }
-            } else { Write-Host "File not found!" -ForegroundColor Red }
-        }
-
-        "enable" {
-            $name = Read-Host "Username to enable"
-            try {
-                Enable-ADAccount -Identity $name
-                Write-Host "Account $name enabled." -ForegroundColor Green
-                Write-Log "SUCCESS: Enabled $name"
-            } catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red }
-        }
-
-        "disable" {
-            $name = Read-Host "Username to disable"
-            try {
-                Disable-ADAccount -Identity $name
-                Write-Host "Account $name disabled." -ForegroundColor Yellow
-                Write-Log "SUCCESS: Disabled $name"
-            } catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red }
-        }
-
-        "createou" {
-            $ouName = Read-Host "New OU Name"
-            try {
-                $domainDN = (Get-ADDomain).DistinguishedName
-                New-ADOrganizationalUnit -Name $ouName -Path $domainDN
-                Write-Host "OU '$ouName' created." -ForegroundColor Green
-                Write-Log "SUCCESS: Created OU $ouName"
-            } catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red }
+            } else { Write-Host "!! FILE NOT FOUND !!" -ForegroundColor Red }
         }
 
         "listuser" {
-            Get-ADUser -Filter * -ResultSetSize 100 | Select Name, SamAccountName | Sort-Object Name | Format-Table
-            Write-Host "(Showing first 100 users)" -ForegroundColor Gray
+            Get-ADUser -Filter * -ResultSetSize 50 | Select Name, SamAccountName | Sort-Object Name | Format-Table
+            Write-Host "(Limit: 50 objects)" -ForegroundColor Gray
         }
 
         "listou" {
@@ -183,17 +152,65 @@ while ($true) {
         }
 
         "userinfo" {
-            $name = Read-Host "Enter username"
+            $name = Read-Host "Target Username"
             try {
-                Write-Host "`n--- User Details: $name ---" -ForegroundColor Cyan
-                Get-ADUser $name -Properties DisplayName,Enabled,LastLogonDate,PasswordLastSet,LockedOut,DistinguishedName |
-                Select-Object DisplayName, SamAccountName, Enabled, LastLogonDate, PasswordLastSet, LockedOut, DistinguishedName |
-                Format-List
-            } catch { Write-Host "User not found." -ForegroundColor Red }
+                Write-Host "`n[ EXTENDED USER REPORT ]" -ForegroundColor Green
+                Get-ADUser $name -Properties UserPrincipalName, Enabled, LastLogonDate, LockedOut, PasswordLastSet, DistinguishedName | 
+                Select-Object @{N="Display Name";E={$_.Name}}, 
+                              SamAccountName, 
+                              UserPrincipalName, 
+                              Enabled, 
+                              LockedOut, 
+                              PasswordLastSet, 
+                              LastLogonDate, 
+                              DistinguishedName | Format-List
+                Write-Log "INFO: Viewed userinfo for $name"
+            } catch { Write-Host "!! USER NOT FOUND !!" -ForegroundColor Red }
         }
 
-        default { Write-Host "Unknown command." -ForegroundColor Yellow }
+        "enable" { 
+            try { 
+                $u = Read-Host "User"
+                Enable-ADAccount -Identity $u
+                Write-Host "[ ENABLED ]" -ForegroundColor Green
+                Write-Log "SUCCESS: Enabled $u"
+            } catch { Write-Host "!! ERROR !!" -ForegroundColor Red } 
+        }
+
+        "disable" { 
+            try { 
+                $u = Read-Host "User"
+                Disable-ADAccount -Identity $u
+                Write-Host "[ DISABLED ]" -ForegroundColor Red
+                Write-Log "SUCCESS: Disabled $u"
+            } catch { Write-Host "!! ERROR !!" -ForegroundColor Red } 
+        }
+
+        "deleteuser" {
+            $name = Read-Host "Username to PURGE"
+            Write-Host "!! WARNING: IRREVERSIBLE ACTION !!" -ForegroundColor Red
+            if ((Read-Host "Confirm (y/n)") -eq 'y') {
+                try {
+                    Remove-ADUser -Identity $name -Confirm:$false
+                    Write-Host "[ PURGED ] $name" -ForegroundColor Green
+                    Write-Log "SUCCESS: Deleted $name"
+                } catch { Write-Host "!! ERROR: $($_.Exception.Message)" -ForegroundColor Red }
+            }
+        }
+
+        "createou" {
+            $ouName = Read-Host "New OU Name"
+            try {
+                New-ADOrganizationalUnit -Name $ouName -Path $ADDomain.DistinguishedName
+                Write-Host "OU '$ouName' created." -ForegroundColor Green
+                Write-Log "SUCCESS: Created OU $ouName"
+            } catch { Write-Host "!! ERROR: $($_.Exception.Message)" -ForegroundColor Red }
+        }
+
+        "viewlog" { if (Test-Path $LogFile) { notepad $LogFile } }
+
+        default { Write-Host "!! UNKNOWN COMMAND !!" -ForegroundColor Red }
     }
-    Write-Host "`n[Press Enter to return to menu]" -ForegroundColor Gray
+    Write-Host "`n[ ENTER TO RETURN ]" -ForegroundColor Green
     Read-Host
 }
