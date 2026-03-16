@@ -8,7 +8,6 @@ Standard AD management can be slow and prone to typos—especially when you're m
 ## Key Features
 * **Complex Password Gen:** It doesn't just use "Password123". It pulls from four different character sets to make sure it clears AD complexity requirements every time.
 * **OU Selection:** Instead of copy-pasting DistinguishedNames, the script pulls a list of available OUs and lets you pick by number.
-* **Safety:** I removed the 'delete OU' command to prevent accidental disasters. I also added a confirmation prompt for deleting users.
 * **Logging:** Everything is saved to `C:\ADScriptLog.txt`. If a command fails, the script catches the error and logs the specific reason why.
 
 ## How it works
@@ -24,5 +23,4 @@ Standard AD management can be slow and prone to typos—especially when you're m
 *Note: You need the RSAT (Active Directory) module installed for this to work.*
 
 ---
-**Author:** [Your Name]
-**Goal:** Streamlining Help Desk workflows and practicing PowerShell automation.
+**Author:** Andrew Storz
